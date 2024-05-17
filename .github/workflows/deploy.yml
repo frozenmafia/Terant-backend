@@ -1,0 +1,25 @@
+name: Deploy to Remote Machine
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Check SERVER_IP
+        run: |
+          echo "Server IP: ${{secrets.SERVER_IP}}"
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -t rsa  ${{secrets.SERVER_IP}} >> ~/.ssh/known_hosts
+      - name: Deploy to Google Cloud VM
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USERNAME}}@${{secrets.SERVER_IP}} '
+            sudo ./deploy_iam.sh
+          '
