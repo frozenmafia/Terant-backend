@@ -2,24 +2,40 @@ name: Deploy to Remote Machine
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Build and push Docker image
+      - name: Build and push Docker image
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
+          docker build -t terantbackend .
+          docker tag terantbackend "${DOCKER_USERNAME}/terantbackend:latest"
+          docker push "${DOCKER_USERNAME}/terantbackend:latest"
+
       - name: Check SERVER_IP
         run: |
-          echo "Server IP: ${{secrets.SERVER_IP}}"
+          echo "Server IP: ${{ secrets.SERVER_IP }}"
+
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -t rsa  ${{secrets.SERVER_IP}} >> ~/.ssh/known_hosts
+          ssh-keyscan -t rsa ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
       - name: Deploy to Google Cloud VM
         run: |
-          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USERNAME}}@${{secrets.SERVER_IP}} '
-            sudo ./deploy_iam.sh
+          ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} '
+            sudo ./deploy__backend.sh
           '
