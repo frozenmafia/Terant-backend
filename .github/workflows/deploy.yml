@@ -37,8 +37,5 @@ jobs:
       - name: Deploy to Google Cloud VM
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} '
-            sudo docker pull '${DOCKER_USERNAME}/terantbackend:latest'
-            sudo docker stop terantbackend || true
-            sudo docker rm terantbackend || true
-            sudo docker run -d --name terantbackend -p 8001:8001 '${DOCKER_USERNAME}/terantbackend:latest'
+            sudo ./deploy_backend.sh
           '
