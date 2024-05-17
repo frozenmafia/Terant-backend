@@ -37,5 +37,5 @@ jobs:
       - name: Deploy to Google Cloud VM
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} '
-            sudo ./deploy__backend.sh
+            sudo ./deploy__backened.sh
           '
