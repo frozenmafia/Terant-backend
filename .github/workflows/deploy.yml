@@ -16,9 +16,8 @@ jobs:
       - name: Build and push Docker image
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: |
-          echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
           docker build -t terantbackend .
           docker tag terantbackend "${DOCKER_USERNAME}/terantbackend:latest"
           docker push "${DOCKER_USERNAME}/terantbackend:latest"
@@ -37,5 +36,5 @@ jobs:
       - name: Deploy to Google Cloud VM
         run: |
           ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} '
-            sudo ./deploy__backend.sh
+            sudo ./deploy_backend.sh
           '
