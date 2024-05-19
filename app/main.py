@@ -2,8 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import models, database
-
+from . import models, database
 app = FastAPI()
 
 # Add CORS middleware
