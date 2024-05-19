@@ -1,6 +1,6 @@
 FROM python:3.10.2
 
-ENV DATABASE_URL="postgresql://postgres:123qwe123qwe@35.238.209.92/postgres"
+ENV DATABASE_URL="postgresql://postgres:123qwe123qwe@35.225.219.25/postgres"
 ENV IAM_SERVICE_URL="https://iam.forge-code.com"
 
 WORKDIR /code
