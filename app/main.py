@@ -4,9 +4,11 @@ from typing import Annotated, List, Optional
 from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from . import models, database
+from . import models, database,schemas
 import logging
+from datetime import datetime, timedelta
 import re
+
 app = FastAPI()
 
 
@@ -130,32 +132,92 @@ class SensorData(BaseModel):
 
     def to_json(self) -> str:
         return json.dumps(self.dict())
-@app.post("/receive_data")
-async def receive_data(request: Request):
-    try:
-        # Read the request body as bytes
-        body_bytes = await request.body()
-        
-        # Decode bytes to string
-        body_str = body_bytes.decode("utf-8")
-        # print(body_str)
-        json_body = json.loads(body_str)
-        # print(json_body)
-        sensor_data = SensorData(**json_body)
-        print(sensor_data.to_json())
+    
 
-
-    except json.JSONDecodeError:
-        print("Invalid JSON")
-        raise HTTPException(status_code=422, detail="Invalid JSON")
-    except Exception as e:
-        print("Validation error")
-        raise HTTPException(status_code=422, detail=f"Validation error: {e}")
-
-    return {"message": "Data received successfully"}
 
 @app.get("/readings")
 async def readings(db:Session = Depends(database.get_db)):
     readings = db.query(models.SensorData).all()
     return readings
     
+@app.post("/add-device/{nom}")
+async def add_device(nom: int, db: Session = Depends(database.get_db)):
+    try:
+        device = models.Device(number_of_modules=nom)
+        db.add(device)
+        db.commit()
+        db.refresh(device)
+
+        modules = [models.Module(device_id=device.id, module_number=i+1) for i in range(nom)]
+        db.add_all(modules)
+        db.commit()
+
+        return device
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding device: {e}")
+
+@app.post("/receive_data")
+async def receive_data(request: Request, db: Session = Depends(database.get_db)):
+    try:
+        body_bytes = await request.body()
+        body_str = body_bytes.decode("utf-8")
+        json_body = json.loads(body_str)
+        sensor_data = SensorData(**json_body)
+
+        current_time = datetime.now()
+        data = sensor_data.data
+        last_timestamp = data[-1].timestamp
+
+        measurements = []
+        for d in data:
+            timestamp = d.timestamp
+            timestamp_diff = last_timestamp - timestamp
+            actual_time = current_time - timedelta(milliseconds=timestamp_diff)
+
+            for reading in d.readings:
+                module = db.query(models.Module).filter_by(device_id=sensor_data.deviceId, module_number=reading.module).first()
+                if not module:
+                    raise HTTPException(status_code=404, detail=f"Module not found for device {sensor_data.deviceId} and module number {reading.module}")
+
+                measurement = models.Measurement(
+                    module_id=module.id,
+                    timestamp=actual_time,
+                    voltage=reading.voltage,
+                    current=reading.current,
+                    power=reading.power,
+                    energy=reading.energy,
+                    frequency=reading.frequency,
+                    power_factor=reading.powerFactor
+                )
+                measurements.append(measurement)
+
+        db.add_all(measurements)
+        db.commit()
+
+        return {"message": "Data received successfully"}
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=422, detail=f"Validation error: {e}")
+    
+
+@app.get("/all", response_model=List[schemas.DeviceSchema])
+async def get_all(db:Session = Depends(database.get_db)):
+
+    devices = db.query(models.Device).all()
+    print(devices)
+    return devices
+
+@app.get("/device/{device_id}", response_model=schemas.DeviceSchema)
+async def get_device(device_id: int, db: Session = Depends(database.get_db)):
+    device = db.query(models.Device).filter(models.Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return device
+
+@app.get("/module/{module_id}", response_model=schemas.ModuleSchema)
+async def get_module(module_id:int, db:Session = Depends(database.get_db)):
+    module = db.query(models.Module).filter(models.Module.id == module_id).first()
+
+    if module is None:
+        raise HTTPException(status_code=404, detail="Module not found")
+    return module
