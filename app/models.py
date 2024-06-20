@@ -26,6 +26,7 @@ class Module(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(Integer, ForeignKey('devices.id'), nullable=False)
     module_number = Column(Integer, nullable=False)
+    on = Column(Integer, nullable=False,default=0)
 
     device = relationship("Device", back_populates="modules")
     measurements = relationship("Measurement", back_populates="module")

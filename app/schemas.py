@@ -21,6 +21,7 @@ class ModuleSchema(BaseModel):
     id: int
     device_id: int
     module_number: int
+    on:int
     measurements: List[MeasurementSchema]
 
     class Config:
@@ -33,3 +34,21 @@ class DeviceSchema(BaseModel):
 
     class Config:
         orm_mode = True
+
+class ModuleStatusSchema:
+    id: int
+    device_id: int
+    module_number: int
+    on:int
+class DevicesStatusSchema:
+    id: int
+    number_of_modules: int
+    modules: List[ModuleStatusSchema]
+
+    # class Config:
+    #     orm_mode = True
+
+
+
+class ModuleStatusToggle:
+    status:int

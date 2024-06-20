@@ -1,28 +1,71 @@
-from fastapi import FastAPI, Depends, HTTPException, File, Body, Request
-import json
-from typing import Annotated, List, Optional
-from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from . import models, database,schemas
-import logging
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, timedelta
-import re
+import json
+from typing import List, Optional
+from pydantic import BaseModel
+from prometheus_client import generate_latest, REGISTRY
+from prometheus_client.exposition import choose_encoder
+import logging
+import paho.mqtt.client as mqtt
+from . import models, database, schemas  # Adjust import path as needed
 
 app = FastAPI()
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# Add CORS middleware
+
+broker = 'v74ef674.ala.asia-southeast1.emqxsl.com'
+port = 8883
+client_id = 'python-mqtt-publisher'
+username = 'anchalshivank'
+password = '123qwe123qwe'
+
+# Initialize MQTT client
+client = mqtt.Client(client_id=client_id)
+
+# Set username and password
+client.username_pw_set(username, password)
+
+# Callback function for on_publish event
+def on_publish(client, userdata, mid):
+    print(f"Message {mid} published")
+
+# Set callback function
+client.on_publish = on_publish
+
+# Configure TLS/SSL
+client.tls_set()
+
+# Connect to broker
+client.connect(broker, port)
+
+# Start the MQTT client loop
+client.loop_start()
+
+
+# CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow requests from all origins, you can restrict it to specific origins if needed
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Allow various HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
 )
 
+# Request logging middleware
+@app.middleware("http")
+async def log_request(request: Request, call_next):
+    # logger.info(f"Incoming request: {request.method} {request.url}")
+    # logger.info(f"Request headers: {request.headers}")
+    # logger.info(f"Request body: {await request.body()}")
+
+    response = await call_next(request)
+
+    return response
+
+# Example model for sensor data
 class SensorDataCreate(BaseModel):
     Voltage: str
     Current: str
@@ -30,83 +73,8 @@ class SensorDataCreate(BaseModel):
     Energy: str
     Frequency: str
     PF: str
-    
-    def __str__(self):
-        return (
-            f"SensorDataCreate(Voltage={self.Voltage}, "
-            f"Current={self.Current}, Power={self.Power}, "
-            f"Energy={self.Energy}, Frequency={self.Frequency}, "
-            f"PF={self.PF})"
-        )
 
-
-@app.middleware("http")
-async def log_request(request, call_next):
-    # logger.info(f"Incoming request: {request.method} {request.url}")
-    # logger.info(f"Request headers: {request.headers}")
-    # logger.info(f"Request body: {await request.body()}")
-    # logger.info(f"Request :{request}")
-
-    response = await call_next(request)
-
-    return response
-
-@app.get("/")
-def get_home():
-    return {"message": "Welcome to the homepage!"}
-
-def validate_sensor_data(sensor_data: SensorDataCreate) -> bool:
-    # Check for 'nan' values in the data
-    return not any(
-        value.lower() == 'nan' 
-        for value in [
-            sensor_data.Voltage, sensor_data.Current, sensor_data.Power,
-            sensor_data.Energy, sensor_data.Frequency, sensor_data.PF
-        ]
-    )
-
-# @app.post("/receive_data")
-# async def receive_data(data):
-#   """
-#   This endpoint receives data containing timestamps from an ESP32 device.
-#   """
-#   # Split the data into lines and strip any leading/trailing whitespaces
-#   lines = data.decode().strip().splitlines()
-#   measurements = []
-#   for line in lines:
-#     # Extract the time value from each line
-#     time_value = int(line.split(":")[1].strip())
-#     # Create a Measurement object and append it to the list
-#     measurements.append(Measurement(time=time_value))
-  
-#   # Process the list of measurements (logic depends on your specific needs)
-#   # You can store them in a database, send them for further processing, etc.
-#   # ... (your processing logic) ...
-  
-#   return {"message": "Data received successfully!"}
-
-# @app.post("/receive_data")
-# async def receive_data(sensor_data:Annotated[bytes, File()], db: Session = Depends(database.get_db)):
-#     if not validate_sensor_data(sensor_data):
-#         raise HTTPException(status_code=400, detail="Received corrupted data")
-    
-
-#     # new_data = models.SensorData(
-#     #     voltage=sensor_data.Voltage,
-#     #     current=sensor_data.Current,
-#     #     power=sensor_data.Power,
-#     #     energy=sensor_data.Energy,
-#     #     frequency=sensor_data.Frequency,
-#     #     pf=sensor_data.PF
-#     # )
-#     # print(sensor_data)
-#     # db.add(new_data)
-#     # db.commit()
-#     # db.refresh(new_data)
-#     print(sensor_data)
-    
-#     return {"message": "Data received successfully"}
-
+# Example model for sensor readings
 class Reading(BaseModel):
     module: int
     voltage: Optional[float]
@@ -116,30 +84,44 @@ class Reading(BaseModel):
     frequency: Optional[float]
     powerFactor: Optional[float]
 
-    def to_json(self) -> str:
-        return json.dumps(self.dict())
-
+# Example model for sensor data with timestamps
 class ReadingData(BaseModel):
     timestamp: int
     readings: List[Reading]
 
-    def to_json(self) -> str:
-        return json.dumps(self.dict())
-
+# Example model for sensor device data
 class SensorData(BaseModel):
     deviceId: str
     data: List[ReadingData]
 
-    def to_json(self) -> str:
-        return json.dumps(self.dict())
-    
-
-
+# Endpoint to retrieve all readings
 @app.get("/readings")
-async def readings(db:Session = Depends(database.get_db)):
+async def readings(db: Session = Depends(database.get_db)):
     readings = db.query(models.SensorData).all()
     return readings
+
+# Endpoint to handle Prometheus metrics
+@app.get("/metrics")
+async def metrics(accept: str = Header(None)):
+    # Default accept header if not provided
+    if accept is None:
+        accept_header = "*/*"
+    else:
+        accept_header = str(accept)
     
+    # Split accept header into list of accepted types with their q values
+    accepted_types = [item.strip() for item in accept_header.split(',')]
+
+    # Pass the accept_header to choose_encoder
+    encoder, content_type = choose_encoder(accepted_types)
+    
+    # Collect metrics from Prometheus registry
+    metrics_data = REGISTRY.collect()
+
+    # Return response with encoded metrics and appropriate content type
+    return Response(content=encoder(metrics_data), media_type=content_type)
+
+# Example endpoint to add a device
 @app.post("/add-device/{nom}")
 async def add_device(nom: int, db: Session = Depends(database.get_db)):
     try:
@@ -156,6 +138,7 @@ async def add_device(nom: int, db: Session = Depends(database.get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding device: {e}")
 
+# Example endpoint to receive sensor data
 @app.post("/receive_data")
 async def receive_data(request: Request, db: Session = Depends(database.get_db)):
     try:
@@ -196,17 +179,17 @@ async def receive_data(request: Request, db: Session = Depends(database.get_db))
 
         return {"message": "Data received successfully"}
     except Exception as e:
-        print(e)
+        logger.error(f"Error receiving data: {e}")
         raise HTTPException(status_code=422, detail=f"Validation error: {e}")
-    
 
+# Example endpoint to retrieve all devices
 @app.get("/all", response_model=List[schemas.DeviceSchema])
-async def get_all(db:Session = Depends(database.get_db)):
-
+async def get_all(db: Session = Depends(database.get_db)):
     devices = db.query(models.Device).all()
-    print(devices)
+    logger.info(f"Retrieved all devices: {devices}")
     return devices
 
+# Example endpoint to retrieve a specific device
 @app.get("/device/{device_id}", response_model=schemas.DeviceSchema)
 async def get_device(device_id: int, db: Session = Depends(database.get_db)):
     device = db.query(models.Device).filter(models.Device.id == device_id).first()
@@ -214,10 +197,67 @@ async def get_device(device_id: int, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=404, detail="Device not found")
     return device
 
+# Example endpoint to retrieve a specific module
 @app.get("/module/{module_id}", response_model=schemas.ModuleSchema)
-async def get_module(module_id:int, db:Session = Depends(database.get_db)):
+async def get_module(module_id: int, db: Session = Depends(database.get_db)):
     module = db.query(models.Module).filter(models.Module.id == module_id).first()
-
     if module is None:
         raise HTTPException(status_code=404, detail="Module not found")
+    return module
+
+@app.get("/device_status/{device_id}")
+async def get_device_status(device_id: int, db: Session = Depends(database.get_db)):
+    device_with_modules = (
+        db.query(models.Device)
+        .filter(models.Device.id == device_id)
+        .options(joinedload(models.Device.modules))
+        .first()
+    )
+
+    if not device_with_modules:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Constructing the desired data structure
+    modules_data = []
+    for module in device_with_modules.modules:
+        module_data = {
+            "module_number": module.module_number,
+            "status": module.on
+            # Add more fields as needed
+        }
+        modules_data.append(module_data)
+
+    # Return a dictionary representation of the device with modules
+    return {
+        "id": device_with_modules.id,
+        "number_of_modules": device_with_modules.number_of_modules,
+        "modules": modules_data
+    }
+
+
+@app.put("/device/{device_id}/module/{module_number}/toggle-status")
+async def toggle_module_status(device_id: int, module_number: int, db: Session = Depends(database.get_db)):
+    # Fetch the module from the database based on device_id and module_number
+    module = db.query(models.Module).filter(
+        models.Module.device_id == device_id,
+        models.Module.module_number == module_number
+    ).first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+
+    # Toggle module status (assuming 'on' is represented as 0 or 1)
+    module.on = 1 if module.on == 0 else 0
+
+    # Commit changes to the database
+    db.commit()
+
+    # Publish MQTT message
+    topic = f"devices/{device_id}/module/{module_number}"
+    message = {
+        'device_id': device_id,
+        'module_number': module_number,
+        'status': module.on  # Publish the updated status (0 or 1)
+    }
+    client.publish(topic, json.dumps(message),retain=True,qos=2)
+
     return module
